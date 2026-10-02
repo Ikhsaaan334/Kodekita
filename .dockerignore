@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+build
+prisma/dev.db
+prisma/dev.db-journal
+uploads
+.env
+.env.local
+*.tsbuildinfo
+next-env.d.ts
+docs
+DEPLOY.md
+README.md
+.git
+.gitignore

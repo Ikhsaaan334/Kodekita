@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  username       String   @unique
+  passwordHash   String
+  avatarUrl      String?
+  nameColor      String   @default("emas")
+  nameEffect     String   @default("normal") // normal | pixel | glitch
+  preferredLang  String   @default("python")
+  role           String   @default("user") // user | admin
+  banned         Boolean  @default(false)
+  xp             Int      @default(0)
+  streakCount    Int      @default(0)
+  lastActiveAt   DateTime?
+  createdAt      DateTime @default(now())
+  lessonProgress LessonProgress[]
+  submissions    Submission[]
+  projectProgress ProjectProgress[]
+
+  @@index([xp])
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model AdminAction {
+  id             String   @id @default(cuid())
+  adminUsername  String
+  action         String
+  targetUsername String?
+  detail         String?
+  createdAt      DateTime @default(now())
+}
+
+model Track {
+  id          String      @id @default(cuid())
+  slug        String      @unique
+  name        String
+  tagline     String
+  description String
+  order       Int
+  modules     Module[]
+  challenges  Challenge[]
+  projects    Project[]
+}
+
+model Module {
+  id          String   @id @default(cuid())
+  trackId     String
+  track       Track    @relation(fields: [trackId], references: [id])
+  title       String
+  description String
+  order       Int
+  lessons     Lesson[]
+}
+
+model Lesson {
+  id        String           @id @default(cuid())
+  moduleId  String
+  module    Module           @relation(fields: [moduleId], references: [id])
+  slug      String
+  title     String
+  summary   String
+  order     Int
+  xpReward  Int              @default(50)
+  steps     String // JSON: Step[]
+  progress  LessonProgress[]
+
+  @@unique([moduleId, slug])
+}
+
+model LessonProgress {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  lessonId       String
+  lesson         Lesson   @relation(fields: [lessonId], references: [id])
+  completedSteps String   @default("[]") // JSON: number[]
+  completed      Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, lessonId])
+}
+
+model Challenge {
+  id            String       @id @default(cuid())
+  trackId       String? // null = tantangan algoritma lintas-bahasa (koleksi LeetCode)
+  track         Track?       @relation(fields: [trackId], references: [id])
+  slug          String       @unique
+  title         String
+  difficulty    String // mudah | sedang | sulit
+  statement     String
+  starterCode   String // dipakai tantangan per-track
+  starterByLang String? // JSON: { [lang]: starter }, dipakai tantangan lintas-bahasa
+  tests         String // JSON: TestCase[]
+  hints         String // JSON: string[]
+  xpReward      Int          @default(100)
+  submissions   Submission[]
+}
+
+model Submission {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id])
+  challengeId String?
+  challenge   Challenge? @relation(fields: [challengeId], references: [id])
+  language    String
+  code        String
+  passed      Boolean
+  createdAt   DateTime   @default(now())
+
+  @@index([userId, passed])
+  @@index([challengeId, passed])
+}
+
+model Project {
+  id            String            @id @default(cuid())
+  trackId       String? // null = proyek lintas-bahasa
+  track         Track?            @relation(fields: [trackId], references: [id])
+  slug          String            @unique
+  title         String
+  summary       String
+  brief         String
+  steps         String // JSON: ProjectStep[]
+  starterByLang String? // JSON: { [lang]: starter }
+  finalTests    String? // JSON: TestCase[]
+  xpReward      Int               @default(300)
+  progress      ProjectProgress[]
+}
+
+model ProjectProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  doneSteps String   @default("[]") // JSON: number[]
+  finalPassed Boolean @default(false)
+  completed Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, projectId])
+}
