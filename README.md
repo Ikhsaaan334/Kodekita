@@ -25,7 +25,7 @@ Belajar dengan mengetik kode, bukan menonton video. Setiap konsep langsung dieks
 - **Proyek terpandu**, brief nyata, checklist langkah dengan hint, dan ujian akhir otomatis.
 - **Empat tipe latihan**: kuis konsep, lengkapi kode, perbaiki kode yang salah, dan tulis program utuh.
 - **Gamifikasi**: XP, level, streak harian, dan papan peringkat dari data nyata.
-- **Profil yang bisa dikustom**: foto PNG/JPG/**GIF** via Supabase Storage, warna nama, dan efek nama normal, pixel, atau glitch.
+- **Profil yang bisa dikustom**: foto PNG/JPG/**GIF** via Supabase Storage/Bucket, warna nama, dan efek nama normal, pixel, atau glitch.
 - **Judge eksekusi kode sungguhan**: kode dinilai dengan test case di sandbox terisolasi, bukan di browser.
 
 ## Bahasa yang didukung
@@ -45,13 +45,51 @@ Total **706 materi**: 6 pelajaran fondasi + 7 × 100 materi jalur mendalam, dita
 ## Memulai
 
 ```bash
-git clone https://github.com/<username>/kodekita.git
+git clone https://github.com/Ikhsaaan334/kodekita.git
 cd kodekita
 npm install
 cp .env.example .env   # lalu isi nilainya, lihat tabel di bawah
 npm run setup          # buat tabel + isi 706 materi
 npm run dev            # buka http://localhost:3000
 ```
+
+### Jalankan dengan Docker (instalasi manual bisa dilewati)
+
+Cara di atas memasang Node.js, dependensi, dan setup database satu per satu di mesin. `docker-compose.yml` menyiapkan semuanya sebagai tiga service: aplikasi (di-build dari `Dockerfile` multi-stage), judge eksekusi kode Piston, dan nginx sebagai reverse proxy. Yang perlu terpasang di mesin hanya Docker.
+
+```bash
+cp .env.example .env   # isi dua variabel wajib di bawah
+docker compose up -d --build
+# buka http://localhost (lewat nginx di port 80)
+```
+
+**Wajib diisi di `.env`, dua ini saja:**
+
+| Variabel | Nilai |
+|---|---|
+| `DATABASE_URL` | Koneksi proyek Supabase. Compose tidak menyertakan service Postgres sendiri, jadi proyek Supabase tetap dibuat manual |
+| `AUTH_SECRET` | Kunci acak baru, `openssl rand -hex 32` |
+
+Compose menolak jalan dengan pesan jelas bila salah satu kosong.
+
+**Tidak perlu diatur, sudah diurus compose dan entry point:**
+
+- `PISTON_URL`: ber-default ke `http://piston:2000/api/v2`, menunjuk service Piston di jaringan compose yang sama.
+- `ENABLE_LOCAL_RUNNER`: dipatok `false` di compose. Eksekusi kode lewat Piston, jadi toolchain 7 bahasa tidak perlu terpasang di mesin.
+- Skema dan konten: entry point menjalankan `prisma db push`, lalu mengisi 706 materi hanya bila database masih kosong. Progres user aman saat container restart.
+- Build, dependensi, `NODE_ENV`, port, dan konfigurasi nginx: semuanya berada di dalam image dan `deploy/nginx.conf`.
+
+**Opsional saat local, boleh dibiarkan kosong:**
+
+- `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`: hanya mengaktifkan fitur foto profil lewat Supabase Storage. Register, login, dan sesi tidak lewat variabel ini, melainkan `AUTH_SECRET` (JWT) + `DATABASE_URL` (tabel user di Postgres). Tanpa keduanya aplikasi jalan normal, fitur avatar nonaktif.
+- `PISTON_KEY`: pengaman untuk Piston yang terekspos internet. Service `piston` di compose tidak mempublikasikan port ke host, jadi tidak relevan saat local.
+
+**Tetap manual dua hal:**
+
+1. Pasang runtime bahasa di Piston, sekali per bahasa setelah container jalan. Tersimpan di volume `piston-packages`, tidak hilang saat restart. Contoh: `docker compose exec piston piston install python 3.10.0`. Bahasa yang belum dipasang tampil nonaktif di UI, bukan error.
+2. HTTPS, domain, dan pengaman Piston hanya perlu dipikirkan saat deploy publik.
+
+Catatan: jalur ini adalah `docker compose`. Menjalankan `Dockerfile` sendirian lewat `docker run` justru berarti set semua environment di atas manual, menyiapkan Piston terpisah, dan mapping port sendiri.
 
 ### Environment variables
 
@@ -72,15 +110,6 @@ Kode pengguna tidak pernah dieksekusi di browser. Judge bekerja dengan dua backe
 
 1. **Piston (produksi)**: instance [Piston](https://github.com/engineer-man/piston) yang di-self-host di container, diisi `PISTON_URL` di environment. Sandbox terisolasi dengan batas waktu dan memori.
 2. **Local runner (pengembangan)**: memanggil toolchain yang terpasang di mesin, dengan auto-deteksi. Status tiap bahasa bisa dicek di `GET /api/runtimes`; bahasa tanpa toolchain tampil nonaktif beserta cara mengaktifkannya.
-
-> Produksi wajib memakai judge terisolasi: set `ENABLE_LOCAL_RUNNER=false` dan arahkan `PISTON_URL` ke instance Piston.
-
-## Deployment
-
-Panduan lengkap ada di [DEPLOY.md](DEPLOY.md), mencakup dua jalur:
-
-- **Serverless**: Supabase (database + storage avatar) + Vercel (aplikasi) + VPS kecil untuk Piston, termasuk tutor langkah demi langkah dan tabel troubleshoot.
-- **Satu VPS**: Dockerfile multi-stage + docker-compose (app, Piston, nginx) di `docker-compose.yml`.
 
 ## Struktur proyek
 
