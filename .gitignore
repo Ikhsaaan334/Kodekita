@@ -8,3 +8,7 @@ uploads/
 *.tsbuildinfo
 next-env.d.ts
 data-migrasi.json
+
+# dokumentasi tidak dipublikasikan ke repo (kecuali README)
+*.md
+!README.md
