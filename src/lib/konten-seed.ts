@@ -1,4 +1,3 @@
-import "server-only";
 import type { PrismaClient } from "@prisma/client";
 import { ALL_TRACKS } from "../../prisma/content";
 import { gabungFondasi } from "../../prisma/content/gabung";
@@ -30,7 +29,7 @@ export async function jalankanSeed(db: PrismaClient, opts: { ifEmpty?: boolean }
   const { lessons: fondasiLessons, peringatan } = gabungFondasi(ALL_TRACKS);
   for (const w of peringatan) console.log(`peringatan: ${w}`);
 
-  const track = await db.track.create({
+  await db.track.create({
     data: {
       slug: "fondasi",
       name: "Dasar Pemrograman",
@@ -38,29 +37,25 @@ export async function jalankanSeed(db: PrismaClient, opts: { ifEmpty?: boolean }
       description:
         "Enam konsep inti (cetak, variabel, input, percabangan, perulangan, fungsi) dengan penjelasan dan contoh untuk tujuh bahasa. Di setiap langkah kamu memilih bahasa di atas editor: teorinya berganti contoh, kuisnya berganti soal, dan latihan kodenya dinilai dengan test yang sama untuk semua bahasa.",
       order: 0,
-    },
-  });
-  const modul = await db.module.create({
-    data: {
-      trackId: track.id,
-      title: "Konsep Dasar",
-      description: "Enam konsep yang dipakai di semua bahasa pemrograman.",
-      order: 0,
-    },
-  });
-  for (const [li, lesson] of fondasiLessons.entries()) {
-    await db.lesson.create({
-      data: {
-        moduleId: modul.id,
-        slug: lesson.slug,
-        title: lesson.title,
-        summary: lesson.summary,
-        order: li,
-        xpReward: lesson.xpReward ?? 50,
-        steps: JSON.stringify(lesson.steps),
+      modules: {
+        create: {
+          title: "Konsep Dasar",
+          description: "Enam konsep yang dipakai di semua bahasa pemrograman.",
+          order: 0,
+          lessons: {
+            create: fondasiLessons.map((lesson, li) => ({
+              slug: lesson.slug,
+              title: lesson.title,
+              summary: lesson.summary,
+              order: li,
+              xpReward: lesson.xpReward ?? 50,
+              steps: JSON.stringify(lesson.steps),
+            })),
+          },
+        },
       },
-    });
-  }
+    },
+  });
 
   // ===== jalur mendalam per bahasa =====
   let jalurLessonTotal = 0;
@@ -69,17 +64,17 @@ export async function jalankanSeed(db: PrismaClient, opts: { ifEmpty?: boolean }
     const bagians = JALUR[lang] ?? [];
     if (bagians.length === 0) continue;
     const label = LANGUAGES[lang as LangId].label;
-    const t = await db.track.create({
-      data: {
-        slug: lang,
-        name: label,
-        tagline: "Jalur mendalam: modul bertingkat dari idiom bahasa sampai siap lapangan.",
-        description: `Jalur lanjutan khusus ${label}: memulai sedikit di atas fondasi dan menanjak sampai topik ekosistem dan praktik lapangan. Selesaikan fondasi dulu, lalu masuk sini untuk kedalaman yang tidak ada padanannya antar bahasa.`,
-        order: oi + 1,
-      },
-    });
     let lessonCounter = 0;
     const bagianUrut = [...bagians].sort((a, b) => a.moduleRange[0] - b.moduleRange[0]);
+
+    // modul dikumpulkan di memori dulu supaya satu jalur (100 materi) masuk
+    // lewat satu create, bukan 100+ round-trip ke database
+    const modulBaru: {
+      title: string;
+      description: string;
+      order: number;
+      lessons: { slug: string; title: string; summary: string; order: number; xpReward: number; steps: string }[];
+    }[] = [];
     for (const bagian of bagianUrut) {
       if (bagian.lang !== lang) throw new Error(`jalur ${lang}: bagian mengaku lang ${bagian.lang}`);
       const [dari, sampai] = bagian.moduleRange;
@@ -90,33 +85,40 @@ export async function jalankanSeed(db: PrismaClient, opts: { ifEmpty?: boolean }
         const mod = bagian.modules[mi - dari];
         const lessonsMilik = bagian.lessons.filter((_, i) => Math.floor(i / 10) === mi - dari);
         if (lessonsMilik.length === 0) continue;
-        const m = await db.module.create({
-          data: { trackId: t.id, title: mod.title, description: mod.description, order: mi },
+        modulBaru.push({
+          title: mod.title,
+          description: mod.description,
+          order: mi,
+          lessons: lessonsMilik.map((lesson, li) => ({
+            slug: lesson.slug,
+            title: lesson.title,
+            summary: lesson.summary,
+            order: li,
+            xpReward: lesson.xpReward ?? 60,
+            steps: JSON.stringify(keAgnostic(lesson.steps, lang)),
+          })),
         });
-        for (const [li, lesson] of lessonsMilik.entries()) {
-          await db.lesson.create({
-            data: {
-              moduleId: m.id,
-              slug: lesson.slug,
-              title: lesson.title,
-              summary: lesson.summary,
-              order: li,
-              xpReward: lesson.xpReward ?? 60,
-              steps: JSON.stringify(keAgnostic(lesson.steps, lang)),
-            },
-          });
-          lessonCounter++;
-        }
+        lessonCounter += lessonsMilik.length;
       }
     }
+    await db.track.create({
+      data: {
+        slug: lang,
+        name: label,
+        tagline: "Jalur mendalam: modul bertingkat dari idiom bahasa sampai siap lapangan.",
+        description: `Jalur lanjutan khusus ${label}: memulai sedikit di atas fondasi dan menanjak sampai topik ekosistem dan praktik lapangan. Selesaikan fondasi dulu, lalu masuk sini untuk kedalaman yang tidak ada padanannya antar bahasa.`,
+        order: oi + 1,
+        modules: { create: modulBaru.map((m) => ({ ...m, lessons: { create: m.lessons } })) },
+      },
+    });
     jalurLessonTotal += lessonCounter;
   }
 
   // ===== tantangan algoritma lintas-bahasa =====
-  for (const p of ALGORITMA) {
-    const starters = makeStarters(p.lcRef ?? p.title);
-    await db.challenge.create({
-      data: {
+  await db.challenge.createMany({
+    data: ALGORITMA.map((p) => {
+      const starters = makeStarters(p.lcRef ?? p.title);
+      return {
         trackId: null,
         slug: p.slug,
         title: p.title,
@@ -127,26 +129,24 @@ export async function jalankanSeed(db: PrismaClient, opts: { ifEmpty?: boolean }
         tests: JSON.stringify(p.tests),
         hints: JSON.stringify(p.hints),
         xpReward: p.xpReward ?? 100,
-      },
-    });
-  }
+      };
+    }),
+  });
 
   // ===== proyek lintas-bahasa =====
-  for (const p of PROYEK_GLOBAL) {
-    await db.project.create({
-      data: {
-        trackId: null,
-        slug: p.slug,
-        title: p.title,
-        summary: p.summary,
-        brief: p.brief,
-        steps: JSON.stringify(p.steps),
-        starterByLang: JSON.stringify(startersProyek(p.title)),
-        finalTests: JSON.stringify(p.finalTests),
-        xpReward: p.xpReward ?? 300,
-      },
-    });
-  }
+  await db.project.createMany({
+    data: PROYEK_GLOBAL.map((p) => ({
+      trackId: null,
+      slug: p.slug,
+      title: p.title,
+      summary: p.summary,
+      brief: p.brief,
+      steps: JSON.stringify(p.steps),
+      starterByLang: JSON.stringify(startersProyek(p.title)),
+      finalTests: JSON.stringify(p.finalTests),
+      xpReward: p.xpReward ?? 300,
+    })),
+  });
 
   return {
     skipped: false as const,
